@@ -1,18 +1,48 @@
 import React from 'react'
-import { ArtColumn } from '../../interfaces'
+import { ArtColumn, CellProps } from '../../interfaces'
 import { makeTreeDataHelper } from '../../utils'
+import { always } from '../../utils/others'
 import { TablePipeline } from '../pipeline'
 
 export interface TreeSelectFeatureOptions {
+  /** 完整的树 */
   tree: any[]
+
+  /** 虚拟的根节点值；该参数非空时， treeSelect 将会在 tree 参数之上再添加一个父节点 */
   rootKey?: string
-  checkedStrategy?: 'all' | 'parent' | 'child'
+
+  // todo
   checkStrictly?: boolean
+
+  // todo
+  checkedStrategy?: 'all' | 'parent' | 'child'
+
+  // todo
   checkboxColumn?: Partial<ArtColumn>
+
+  // todo
   value?: string[]
+
+  // todo
   defaultValue?: string[]
+
+  // todo
   onChange?(nextValue: string[]): void
+
+  /** 点击事件的响应区域 */
+  clickArea?: 'checkbox' | 'cell' | 'row'
+
+  // todo
+  stopClickEventPropagation?: boolean
+
+  /** 被选中时是否高亮整行 */
   highlightRowWhenSelected?: boolean
+
+  /** 是否禁用该节点的交互 */
+  isDisabled?(row: any): boolean
+
+  /** 是否让该节点对应的子树 与其父节点脱离联动 */
+  idDetached?(row: any): boolean
 }
 
 const STATE_KEY = 'treeSelect'
@@ -27,27 +57,40 @@ export function treeSelect(opts: TreeSelectFeatureOptions) {
     if (typeof primaryKey !== 'string') {
       throw new Error('treeSelect 仅支持字符串作为 primaryKey')
     }
-    const value = opts.value ?? pipeline.getStateAtKey(STATE_KEY) ?? opts.defaultValue ?? []
+    const clickArea = opts.clickArea ?? 'checkbox'
+    const isDisabled = opts.isDisabled ?? always(false)
+    const isDetached = opts.idDetached ?? always(false)
 
-    const treeDataHelper = makeTreeDataHelper<any>({
-      tree: opts.rootKey != null ? [{ [primaryKey]: opts.rootKey, children: opts.tree }] : opts.tree,
-      getNodeValue: (node) => node[primaryKey],
+    const value = opts.value ?? pipeline.getStateAtKey(STATE_KEY) ?? opts.defaultValue ?? []
+    const tree = opts.rootKey != null ? [{ [primaryKey]: opts.rootKey, children: opts.tree }] : opts.tree
+    const getNodeValue = (node: any) => node[primaryKey]
+
+    const treeDataHelper = makeTreeDataHelper({
       value,
+      getNodeValue,
+      isDisabled,
+      isDetached,
+      tree,
       checkedStrategy: opts.checkedStrategy,
       checkStrictly: opts.checkStrictly,
     })
 
-    const makeCheckbox = (key: string) => (
-      <Checkbox
-        checked={treeDataHelper.isChecked(key)}
-        indeterminate={treeDataHelper.isIndeterminate(key)}
-        onChange={() => {
-          const nextValue = treeDataHelper.getValueAfterToggle(key)
-          pipeline.setStateAtKey(STATE_KEY, nextValue)
-          opts.onChange?.(nextValue)
-        }}
-      />
-    )
+    const onToggleKey = (key: string) => {
+      const nextValue = treeDataHelper.getValueAfterToggle(key)
+      pipeline.setStateAtKey(STATE_KEY, nextValue)
+      opts.onChange?.(nextValue)
+    }
+
+    const makeCheckbox = (key: string, root: boolean, row?: any) => {
+      return (
+        <Checkbox
+          checked={treeDataHelper.isChecked(key)}
+          indeterminate={treeDataHelper.isIndeterminate(key)}
+          disabled={!root && isDisabled(row)}
+          onChange={clickArea === 'checkbox' || root ? () => onToggleKey(key) : undefined}
+        />
+      )
+    }
 
     const columns = pipeline.getColumns()
     pipeline.columns([
@@ -56,14 +99,52 @@ export function treeSelect(opts: TreeSelectFeatureOptions) {
         name: '',
         width: 50,
         align: 'center',
+        title: opts.rootKey != null ? makeCheckbox(opts.rootKey, true) : undefined,
         ...opts.checkboxColumn,
-        title: opts.rootKey != null ? makeCheckbox(opts.rootKey) : undefined,
         render(value, record) {
-          return makeCheckbox(record[primaryKey])
+          return makeCheckbox(record[primaryKey], false, record)
+        },
+        getCellProps(value: any, row: any): CellProps {
+          const rowKey = row[primaryKey]
+          if (clickArea !== 'cell') {
+            return
+          }
+
+          const disabled = isDisabled(row)
+          if (disabled) {
+            return { style: { cursor: 'not-allowed' } }
+          }
+
+          return {
+            style: { cursor: 'pointer' },
+            onClick(e) {
+              if (opts.stopClickEventPropagation) {
+                e.stopPropagation()
+              }
+              onToggleKey(rowKey)
+            },
+          }
         },
       },
       ...columns,
     ])
+
+    if (clickArea === 'row') {
+      pipeline.appendRowPropsGetter((row) => {
+        const disabled = isDisabled(row)
+        if (!disabled) {
+          return {
+            style: { cursor: 'pointer' },
+            onClick(e) {
+              if (opts.stopClickEventPropagation) {
+                e.stopPropagation()
+              }
+              onToggleKey(row[primaryKey])
+            },
+          }
+        }
+      })
+    }
 
     if (opts.highlightRowWhenSelected) {
       pipeline.appendRowPropsGetter((row) => {

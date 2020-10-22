@@ -1,5 +1,5 @@
 import { Button } from '@alifd/next'
-import { ArtColumn, collectNodes, features, isLeafNode } from 'ali-react-table'
+import { ArtColumn, collectNodes, features, isLeafNode, useTablePipeline } from 'ali-react-table'
 import {
   columns1,
   columns3,
@@ -316,6 +316,45 @@ export function 行详情() {
               </div>
             </DetailDiv>
           )
+        },
+      }),
+    )
+
+  return <ThemedBaseTable {...pipeline.getProps()} />
+}
+
+export function 树形可选择表格() {
+  const dataSource = dataSource4
+  const columns = [
+    { lock: true, code: 'id', name: 'id', width: 100 },
+    { code: 'title', name: '标题', width: 200 },
+    { code: 'dept', name: '部门名称', width: 180 },
+    { code: 'dest', name: '团建目的地', width: 160 },
+    { code: 'guide', name: '当地导游', width: 160 },
+  ]
+
+  const pipeline = useThemedTablePipeline()
+    .input({ dataSource, columns })
+    .primaryKey('id')
+    .use(features.treeMode())
+    .use(
+      features.treeSelect({
+        tree: dataSource,
+        rootKey: 'root',
+        defaultValue: ['1', '2', '3'],
+        onChange(v) {
+          console.log('TreeSelect onChange', v)
+        },
+        checkboxColumn: { lock: true },
+        highlightRowWhenSelected: true,
+        clickArea: 'cell',
+        checkedStrategy: 'parent',
+        idDetached() {
+          // todo 子树是否脱离 整树
+        },
+        isDisabled(row: any): boolean {
+          // todo 是否禁用交互
+          return row.id.startsWith('2')
         },
       }),
     )
